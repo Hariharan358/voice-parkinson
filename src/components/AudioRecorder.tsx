@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Mic, Square, Upload } from 'lucide-react';
+import { Mic, Square, Upload, File } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 import AudioWaveform from './AudioWaveform';
@@ -16,6 +16,7 @@ export default function AudioRecorder({ onAudioCaptured, isProcessing }: AudioRe
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const startRecording = async () => {
@@ -87,6 +88,45 @@ export default function AudioRecorder({ onAudioCaptured, isProcessing }: AudioRe
     audioChunksRef.current = [];
   };
 
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Check if the file is an audio file
+      if (!file.type.startsWith('audio/')) {
+        toast({
+          variant: "destructive",
+          title: "Invalid file type",
+          description: "Please upload an audio file (WAV, MP3, etc.)",
+        });
+        return;
+      }
+
+      // Reset any existing recording
+      audioChunksRef.current = [];
+      
+      // Read the file as a blob
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          const audioBlob = new Blob([e.target.result], { type: file.type });
+          audioChunksRef.current = [audioBlob];
+          const audioUrl = URL.createObjectURL(audioBlob);
+          setAudioUrl(audioUrl);
+          
+          toast({
+            title: "Audio file uploaded",
+            description: `Uploaded: ${file.name}`,
+          });
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  };
+
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardContent className="p-6">
@@ -96,7 +136,7 @@ export default function AudioRecorder({ onAudioCaptured, isProcessing }: AudioRe
               <AudioWaveform isRecording={isRecording} />
             ) : (
               <div className="text-muted-foreground text-sm">
-                {audioUrl ? "Recording complete" : "Ready to record"}
+                {audioUrl ? "Recording complete" : "Ready to record or upload audio"}
               </div>
             )}
           </div>
@@ -107,13 +147,30 @@ export default function AudioRecorder({ onAudioCaptured, isProcessing }: AudioRe
 
           <div className="flex gap-3 flex-wrap justify-center">
             {!isRecording && !audioUrl && (
-              <Button 
-                onClick={startRecording} 
-                className="gap-2"
-                disabled={isProcessing}
-              >
-                <Mic className="w-4 h-4" /> Start Recording
-              </Button>
+              <>
+                <Button 
+                  onClick={startRecording} 
+                  className="gap-2"
+                  disabled={isProcessing}
+                >
+                  <Mic className="w-4 h-4" /> Start Recording
+                </Button>
+                <Button
+                  onClick={handleUploadClick}
+                  variant="outline"
+                  className="gap-2"
+                  disabled={isProcessing}
+                >
+                  <File className="w-4 h-4" /> Upload Audio
+                </Button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept="audio/*"
+                  className="hidden"
+                />
+              </>
             )}
 
             {isRecording && (
@@ -132,7 +189,7 @@ export default function AudioRecorder({ onAudioCaptured, isProcessing }: AudioRe
                   onClick={submitRecording} 
                   className="gap-2"
                 >
-                  <Upload className="w-4 h-4" /> Submit Recording
+                  <Upload className="w-4 h-4" /> Submit Audio
                 </Button>
                 <Button 
                   onClick={resetRecording} 
