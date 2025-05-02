@@ -1,213 +1,150 @@
-
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
+import axios from 'axios';
 import { Button } from '@/components/ui/button';
-import { Mic, Square, Upload, File } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { useToast } from '@/components/ui/use-toast';
-import AudioWaveform from './AudioWaveform';
+import { Progress } from '@/components/ui/progress';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 
-interface AudioRecorderProps {
-  onAudioCaptured: (audioBlob: Blob) => void;
-  isProcessing: boolean;
+interface AnalysisResult {
+  prediction: string; // "Parkinson's Disease" or "Healthy"
+  probability: number; // e.g., 0.85
+  features: {
+    mfccs: number[];
+    chroma: number[];
+    zeroCrossingRate: number;
+    spectralCentroid: number;
+  };
 }
 
-export default function AudioRecorder({ onAudioCaptured, isProcessing }: AudioRecorderProps) {
-  const [isRecording, setIsRecording] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
+export default function AudioRecorder() {
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const startRecording = async () => {
-    audioChunksRef.current = [];
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      
-      mediaRecorderRef.current.addEventListener('dataavailable', (event) => {
-        audioChunksRef.current.push(event.data);
-      });
-
-      mediaRecorderRef.current.addEventListener('stop', () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        setAudioUrl(audioUrl);
-      });
-
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-      toast({
-        title: "Recording started",
-        description: "Speak clearly into your microphone",
-      });
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      toast({
-        variant: "destructive",
-        title: "Error accessing microphone",
-        description: "Please make sure your microphone is connected and permissions are granted.",
-      });
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      
-      // Stop all tracks on the stream
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-      
-      toast({
-        title: "Recording stopped",
-        description: "You can now submit your recording or try again",
-      });
-    }
-  };
-
-  const submitRecording = () => {
-    if (audioChunksRef.current.length > 0) {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      onAudioCaptured(audioBlob);
-      toast({
-        title: "Recording submitted",
-        description: "Your voice sample is being processed",
-      });
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && ['audio/wav', 'audio/mpeg'].includes(file.type)) {
+      setAudioFile(file);
+      setError(null);
     } else {
-      toast({
-        variant: "destructive",
-        title: "No recording available",
-        description: "Please record a voice sample before submitting",
+      setError('Please select a valid .wav or .mp3 file.');
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!audioFile) {
+      setError('Please select an audio file first.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append('file', audioFile);
+
+    try {
+      const response = await axios.post('http://localhost:5000/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
       });
+      setResult(response.data);
+    } catch (error) {
+      console.error('Error:', error.response?.data || error.message);
+      setError(error.response?.data?.error || 'Error uploading or processing file. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const resetRecording = () => {
-    setAudioUrl(null);
-    audioChunksRef.current = [];
-  };
+  const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
+  if (loading) {
+    return <div>Loading...</div>;
+  }
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      // Check if the file is an audio file
-      if (!file.type.startsWith('audio/')) {
-        toast({
-          variant: "destructive",
-          title: "Invalid file type",
-          description: "Please upload an audio file (WAV, MP3, etc.)",
-        });
-        return;
-      }
-
-      // Reset any existing recording
-      audioChunksRef.current = [];
-      
-      // Read the file as a blob
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        if (e.target?.result) {
-          const audioBlob = new Blob([e.target.result], { type: file.type });
-          audioChunksRef.current = [audioBlob];
-          const audioUrl = URL.createObjectURL(audioBlob);
-          setAudioUrl(audioUrl);
-          
-          toast({
-            title: "Audio file uploaded",
-            description: `Uploaded: ${file.name}`,
-          });
-        }
-      };
-      reader.readAsArrayBuffer(file);
-    }
-  };
+  if (error) {
+    return <div className="text-red-500">{error}</div>;
+  }
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardContent className="p-6">
-        <div className="flex flex-col items-center gap-4">
-          <div className="mb-4 h-[50px] flex items-center justify-center">
-            {isRecording ? (
-              <AudioWaveform isRecording={isRecording} />
-            ) : (
-              <div className="text-muted-foreground text-sm">
-                {audioUrl ? "Recording complete" : "Ready to record or upload audio"}
+    <div>
+      <input type="file" accept="audio/wav,audio/mpeg" onChange={handleFileChange} />
+      <Button onClick={handleSubmit} disabled={!audioFile}>
+        Submit
+      </Button>
+
+      {result && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Analysis Results</CardTitle>
+            <CardDescription>Voice pattern analysis for Parkinson's indicators</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* Parkinson's Indicators */}
+            <div>
+              <div className="flex justify-between mb-2">
+                <span>Parkinson's Indicators Detected:</span>
+                <span>{result.probability > 0.7 ? 'High' : result.probability > 0.3 ? 'Medium' : 'Low'}</span>
               </div>
-            )}
-          </div>
+              <Progress value={result.probability * 100} className="h-3" />
+            </div>
 
-          {audioUrl && (
-            <audio src={audioUrl} controls className="w-full mb-4" />
-          )}
+            {/* Quality Indicators (Placeholders) */}
+            <Separator />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <div className="flex justify-between">
+                  <span>Confidence Score:</span>
+                  <span>{formatPercent(result.probability)}</span>
+                </div>
+                <Progress value={result.probability * 100} className="h-2" />
+              </div>
+              <div>
+                <div className="flex justify-between">
+                  <span>Audio Quality:</span>
+                  <span>{formatPercent(0.8)}</span> {/* Placeholder */}
+                </div>
+                <Progress value={80} className="h-2" />
+              </div>
+            </div>
 
-          <div className="flex gap-3 flex-wrap justify-center">
-            {!isRecording && !audioUrl && (
-              <>
-                <Button 
-                  onClick={startRecording} 
-                  className="gap-2"
-                  disabled={isProcessing}
-                >
-                  <Mic className="w-4 h-4" /> Start Recording
-                </Button>
-                <Button
-                  onClick={handleUploadClick}
-                  variant="outline"
-                  className="gap-2"
-                  disabled={isProcessing}
-                >
-                  <File className="w-4 h-4" /> Upload Audio
-                </Button>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  accept="audio/*"
-                  className="hidden"
-                />
-              </>
-            )}
-
-            {isRecording && (
-              <Button 
-                onClick={stopRecording} 
-                variant="destructive"
-                className="gap-2"
-              >
-                <Square className="w-4 h-4" /> Stop Recording
-              </Button>
-            )}
-
-            {audioUrl && !isProcessing && (
-              <>
-                <Button 
-                  onClick={submitRecording} 
-                  className="gap-2"
-                >
-                  <Upload className="w-4 h-4" /> Submit Audio
-                </Button>
-                <Button 
-                  onClick={resetRecording} 
-                  variant="outline"
-                >
-                  Try Again
-                </Button>
-              </>
-            )}
-
-            {isProcessing && (
-              <Button disabled className="gap-2">
-                <div className="animate-pulse-slow">Processing...</div>
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+            {/* Features Table */}
+            <Separator />
+            <div>
+              <h4>Extracted Voice Features:</h4>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    <th>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>MFCC Mean</td>
+                    <td>{(result.features.mfccs.reduce((a, b) => a + b, 0) / result.features.mfccs.length).toFixed(6)}</td>
+                  </tr>
+                  <tr>
+                    <td>Chroma Mean</td>
+                    <td>{(result.features.chroma.reduce((a, b) => a + b, 0) / result.features.chroma.length).toFixed(6)}</td>
+                  </tr>
+                  <tr>
+                    <td>Zero Crossing Rate</td>
+                    <td>{result.features.zeroCrossingRate.toFixed(6)}</td>
+                  </tr>
+                  <tr>
+                    <td>Spectral Centroid</td>
+                    <td>{result.features.spectralCentroid.toFixed(6)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

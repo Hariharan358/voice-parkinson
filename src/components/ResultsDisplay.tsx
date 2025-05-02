@@ -1,146 +1,116 @@
+import React, { useState } from 'react';
+import axios from 'axios';
 
-import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
-import { AlertTriangle, Info } from 'lucide-react';
-import { 
-  Table, 
-  TableBody, 
-  TableCaption, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '@/components/ui/table';
-import { AnalysisResult } from '@/services/audioAnalyzer';
-
-interface ResultsDisplayProps {
-  result: AnalysisResult | null;
+interface AnalysisResult {
+  prediction: string;
+  probability: number;
+  features: {
+    mfccs: number[];
+    chroma: number[];
+    zeroCrossingRate: number;
+    spectralCentroid: number;
+  };
 }
 
-export default function ResultsDisplay({ result }: ResultsDisplayProps) {
-  if (!result) return null;
-  
-  const { pdLikelihood, features, confidenceScore, qualityScore } = result;
+const ResultsDisplay = () => {
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
 
-  // Risk categories
-  let riskLevel = "Low";
-  let riskColor = "text-green-600";
-  
-  if (pdLikelihood > 0.7) {
-    riskLevel = "High";
-    riskColor = "text-red-600";
-  } else if (pdLikelihood > 0.3) {
-    riskLevel = "Medium";
-    riskColor = "text-amber-600";
-  }
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile && ['audio/wav', 'audio/mpeg'].includes(selectedFile.type)) {
+      setFile(selectedFile);
+      setError(null);
+    } else {
+      setError('Please select a valid .wav or .mp3 file.');
+    }
+  };
 
-  // Format percentage
-  const formatPercent = (value: number) => {
-    return `${(value * 100).toFixed(1)}%`;
+  const handleUpload = async () => {
+    if (!file) {
+      setError('Please select a file');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setLoading(true);
+    try {
+      const response = await axios.post('http://localhost:5000/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      setResult(response.data);
+      setError(null);
+    } catch (err) {
+      console.error('Error:', err.response?.data || err.message);
+      setError(err.response?.data?.error || 'Error uploading or analyzing the file');
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            Analysis Results
-            <span className="text-xs bg-health-100 text-health-800 px-2 py-1 rounded-full">
-              Research Grade
-            </span>
-          </CardTitle>
-          <CardDescription>
-            Voice pattern analysis for Parkinson's indicators
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Primary indicator */}
-          <div>
-            <div className="flex justify-between mb-2">
-              <span className="font-medium">Parkinson's Indicators Detected:</span>
-              <span className={`font-semibold ${riskColor}`}>{riskLevel}</span>
-            </div>
-            <Progress 
-              value={pdLikelihood * 100} 
-              className={`h-3 ${
-                pdLikelihood > 0.7 ? 'bg-red-200' : 
-                pdLikelihood > 0.3 ? 'bg-amber-200' : 'bg-green-200'
-              }`} 
-            />
-            <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-              <span>Low</span>
-              <span>Medium</span>
-              <span>High</span>
-            </div>
+    <div className="container mx-auto p-4">
+      <h1 className="text-3xl font-bold text-center mb-6">Parkinson's Disease Audio Prediction</h1>
+
+      <div className="flex justify-center mb-6">
+        <input
+          type="file"
+          accept=".wav,.mp3"
+          onChange={handleFileChange}
+          className="border-2 border-gray-300 p-2 rounded-lg"
+        />
+        <button
+          onClick={handleUpload}
+          disabled={!file || loading}
+          className="ml-4 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-700 transition-all"
+        >
+          Upload and Analyze
+        </button>
+      </div>
+
+      {loading && <p className="text-center text-blue-500">Analyzing your audio...</p>}
+
+      {error && <p className="text-center text-red-500">{error}</p>}
+
+      {result && (
+        <div className="result-container mt-8 p-6 border-2 border-gray-300 rounded-lg">
+          <h2 className="text-2xl font-semibold mb-4">Analysis Result</h2>
+
+          <div className="mb-4">
+            <p className="text-xl">
+              <strong>Prediction:</strong> {result.prediction}
+            </p>
+            <p className="text-lg">
+              <strong>Probability:</strong> {(result.probability * 100).toFixed(1)}%
+            </p>
           </div>
 
-          <Separator />
-
-          {/* Quality indicators */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm">Confidence Score:</span>
-                <span className="text-sm font-medium">{formatPercent(confidenceScore)}</span>
-              </div>
-              <Progress value={confidenceScore * 100} className="h-2" />
-            </div>
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm">Audio Quality:</span>
-                <span className="text-sm font-medium">{formatPercent(qualityScore)}</span>
-              </div>
-              <Progress value={qualityScore * 100} className="h-2" />
-            </div>
-          </div>
-
-          {/* Voice features */}
-          <div>
-            <h4 className="text-sm font-medium mb-2">Extracted Voice Features:</h4>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Feature</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell>Jitter</TableCell>
-                  <TableCell className="text-right">{features.jitter.toFixed(4)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>Shimmer</TableCell>
-                  <TableCell className="text-right">{features.shimmer.toFixed(4)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>Harmonic to Noise Ratio</TableCell>
-                  <TableCell className="text-right">{features.harmonicToNoise.toFixed(2)} dB</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>Pitch Variability</TableCell>
-                  <TableCell className="text-right">{features.pitchVariability.toFixed(2)} st</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>Formant Frequency</TableCell>
-                  <TableCell className="text-right">{features.formantFrequency.toFixed(0)} Hz</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Disclaimer */}
-          <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex gap-2 text-amber-800">
-            <AlertTriangle className="h-5 w-5 flex-shrink-0" />
-            <div className="text-sm">
-              <strong>Medical Disclaimer:</strong> This tool is not a substitute for professional medical diagnosis. 
-              If you have concerns about Parkinson's disease or other neurological conditions, please consult a healthcare professional.
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          <h3 className="text-xl font-semibold mt-4">Extracted Features:</h3>
+          <ul className="list-disc pl-5">
+            <li>
+              <strong>MFCC Mean:</strong> {(result.features.mfccs.reduce((a, b) => a + b, 0) / result.features.mfccs.length).toFixed(6)}
+            </li>
+            <li>
+              <strong>Chroma Mean:</strong> {(result.features.chroma.reduce((a, b) => a + b, 0) / result.features.chroma.length).toFixed(6)}
+            </li>
+            <li>
+              <strong>Zero Crossing Rate:</strong> {result.features.zeroCrossingRate.toFixed(6)}
+            </li>
+            <li>
+              <strong>Spectral Centroid:</strong> {result.features.spectralCentroid.toFixed(6)}
+            </li>
+          </ul>
+        </div>
+      )}
     </div>
   );
-}
+};
+
+export default ResultsDisplay;
